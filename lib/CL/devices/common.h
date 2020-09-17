@@ -60,12 +60,6 @@
 extern "C" {
 #endif
 
-#ifdef __GNUC__
-#pragma GCC visibility push(hidden)
-#endif
-
-void pocl_init_cpu_device_infos (cl_device_id dev);
-
 int llvm_codegen (char *output, unsigned device_i, cl_kernel kernel,
                   cl_device_id device, _cl_command_node *command,
                   int specialize);
@@ -119,9 +113,7 @@ void pocl_print_system_memory_stats();
 void pocl_calculate_kernel_hash (cl_program program, unsigned kernel_i,
                                  unsigned device_i);
 
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
+void pocl_init_default_device_infos (cl_device_id dev);
 
 #ifdef __cplusplus
 }

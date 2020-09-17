@@ -148,6 +148,7 @@ pocl_cuda_init_device_ops (struct pocl_device_ops *ops)
   ops->free_event_data = pocl_cuda_free_event_data;
   ops->join = pocl_cuda_join;
   ops->flush = pocl_cuda_flush;
+  ops->init_build = pocl_cuda_init_build;
   // TODO
   ops->map_mem = pocl_cuda_map_mem;
 
@@ -170,7 +171,8 @@ pocl_cuda_init (unsigned j, cl_device_id dev, const char *parameters)
   if (dev->data)
     return ret;
 
-  pocl_init_cpu_device_infos (dev);
+  pocl_init_default_device_infos (dev);
+  dev->extensions = CUDA_DEVICE_EXTENSIONS;
 
   dev->vendor = "NVIDIA Corporation";
   dev->vendor_id = 0x10de; /* the PCIID for NVIDIA */
@@ -190,6 +192,8 @@ pocl_cuda_init (unsigned j, cl_device_id dev, const char *parameters)
 
   /* TODO: Get images working */
   dev->image_support = CL_FALSE;
+
+  dev->autolocals_to_args = 2;
 
   dev->has_64bit_long = 1;
 
@@ -559,6 +563,41 @@ pocl_cuda_submit_read (CUstream stream, void *host_ptr, const void *device_ptr,
   CUresult result = cuMemcpyDtoHAsync (
       host_ptr, (CUdeviceptr) (device_ptr + offset), cb, stream);
   CUDA_CHECK (result, "cuMemcpyDtoHAsync");
+}
+
+void
+pocl_cuda_submit_memfill (CUstream stream, void *mem_ptr, size_t size_in_bytes,
+                          size_t offset, const void *pattern,
+                          size_t pattern_size)
+{
+  CUresult result;
+  switch (pattern_size)
+    {
+    case 1:
+      result
+          = cuMemsetD8Async ((CUdeviceptr) (((char *)mem_ptr) + offset),
+                             *(unsigned char *)pattern, size_in_bytes, stream);
+      break;
+    case 2:
+      result = cuMemsetD16Async ((CUdeviceptr) (((char *)mem_ptr) + offset),
+                                 *(unsigned short *)pattern, size_in_bytes / 2,
+                                 stream);
+      break;
+    case 4:
+      result = cuMemsetD32Async ((CUdeviceptr) (((char *)mem_ptr) + offset),
+                                 *(unsigned int *)pattern, size_in_bytes / 4,
+                                 stream);
+      break;
+    case 8:
+    case 16:
+    case 32:
+    case 64:
+    case 128:
+      POCL_ABORT_UNIMPLEMENTED ("fill_kernel with pattern_size >=8");
+    default:
+      POCL_ABORT ("unrecognized pattern_size");
+    }
+  CUDA_CHECK (result, "cuMemset*Async");
 }
 
 void
@@ -983,20 +1022,25 @@ pocl_cuda_submit_kernel (CUstream stream, _cl_command_node *cmd,
 
   unsigned arg_index = meta->num_args;
 
-  /* Deal with automatic local allocations */
-  /* TODO: Would be better to remove arguments and make these static GEPs */
-  for (i = 0; i < meta->num_locals; ++i, ++arg_index)
+  if (sharedMemBytes != 0)
     {
-      size_t size = meta->local_sizes[i];
-      size_t align = kdata->alignments[arg_index];
+      /* Deal with automatic local allocations if there are local function args
+       */
+      /* TODO: Would be better to remove arguments and make these static GEPs
+       */
+      for (i = 0; i < meta->num_locals; ++i, ++arg_index)
+        {
+          size_t size = meta->local_sizes[i];
+          size_t align = kdata->alignments[arg_index];
 
-      /* Pad offset to align memory */
-      if (sharedMemBytes % align)
-        sharedMemBytes += align - (sharedMemBytes % align);
+          /* Pad offset to align memory */
+          if (sharedMemBytes % align)
+            sharedMemBytes += align - (sharedMemBytes % align);
 
-      sharedMemOffsets[arg_index] = sharedMemBytes;
-      sharedMemBytes += size;
-      params[arg_index] = sharedMemOffsets + arg_index;
+          sharedMemOffsets[arg_index] = sharedMemBytes;
+          sharedMemBytes += size;
+          params[arg_index] = sharedMemOffsets + arg_index;
+        }
     }
 
   /* Add global work dimensionality */
@@ -1216,6 +1260,11 @@ pocl_cuda_submit_node (_cl_command_node *node, cl_command_queue cq, int locked)
       break;
 
     case CL_COMMAND_FILL_BUFFER:
+      pocl_cuda_submit_memfill (stream, cmd->memfill.dst_mem_id->mem_ptr,
+                                cmd->memfill.size, cmd->memfill.offset,
+                                cmd->memfill.pattern,
+                                cmd->memfill.pattern_size);
+      break;
     case CL_COMMAND_READ_IMAGE:
     case CL_COMMAND_WRITE_IMAGE:
     case CL_COMMAND_COPY_IMAGE:
@@ -1569,4 +1618,13 @@ pocl_cuda_finalize_thread (void *data)
     }
 
   return NULL;
+}
+
+char* pocl_cuda_init_build(void *data)
+{
+#ifdef LLVM_OLDER_THAN_7_0
+    return strdup("");
+#else
+    return strdup("-mllvm --nvptx-short-ptr");
+#endif
 }

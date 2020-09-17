@@ -626,6 +626,7 @@ if(ENABLE_RELOCATION)
           DESTINATION "${POCL_INSTALL_PRIVATE_DATADIR}/include" COMPONENT "dev")
 endif()
 
+file(RELATIVE_PATH POCL_INSTALL_PRIVATE_LIBDIR_REL ${POCL_INSTALL_PUBLIC_LIBDIR} ${POCL_INSTALL_PRIVATE_LIBDIR})
 
 ######################################################################################
 
@@ -1013,10 +1014,12 @@ endif()
 
 if(ENABLE_SPIR)
   set(HOST_DEVICE_EXTENSIONS "${HOST_DEVICE_EXTENSIONS} cl_khr_spir")
+  set(DEFAULT_DEVICE_EXTENSIONS "${DEFAULT_DEVICE_EXTENSIONS} cl_khr_spir")
 endif()
 
 if(NOT CL_DISABLE_HALF)
   set(HOST_DEVICE_EXTENSIONS "${HOST_DEVICE_EXTENSIONS} cl_khr_fp16")
+  set(DEFAULT_DEVICE_EXTENSIONS "${DEFAULT_DEVICE_EXTENSIONS} cl_khr_fp16")
 endif()
 
 # must not be defined in HOST_DEVICE_EXTENSIONS list, because
@@ -1242,6 +1245,9 @@ if(ENABLE_CUDA)
   set(BUILD_CUDA 1)
 
   set(CUDA_DEVICE_EXTENSIONS "cl_khr_byte_addressable_store cl_khr_global_int32_base_atomics cl_khr_global_int32_extended_atomics cl_khr_local_int32_base_atomics cl_khr_local_int32_extended_atomics cl_khr_fp64 cl_khr_int64_base_atomics cl_khr_int64_extended_atomics")
+  if(ENABLE_SPIR)
+    set(CUDA_DEVICE_EXTENSIONS "${CUDA_DEVICE_EXTENSIONS} cl_khr_spir")
+  endif()
   set(CUDA_DEVICE_CL_VERSION "120")
   set(CUDA_DEVICE_CL_STD "1.2")
 endif()
